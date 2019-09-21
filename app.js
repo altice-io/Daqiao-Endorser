@@ -6,11 +6,23 @@ import { Keyring } from '@polkadot/keyring';
 import { Text } from "@polkadot/types";
 import { RSA_NO_PADDING } from 'constants';
 import child_process from "child_process";
-
-const FABRIC_BANK_ADDRESS = "bc347b901e7da41e726a7d9dd790fa4e81274822bb9ac006e5a822751315f701";
-const CHAINID_FABRIC = 1
-const CHAINID_ETH = 2
 const Web3 = require('web3');
+
+const CHAINID_FABRIC = "1"
+const CHAINID_ETH = "2"
+
+const chains = {
+    [CHAINID_ETH]: {
+        transfer: eth_transfer,
+        query_tx: eth_query_tx,
+        bank_address: "",
+    },
+    [CHAINID_FABRIC]: {
+        transfer: fabric_transfer,
+        query_tx: fabric_query_tx,
+        bank_address: "bc347b901e7da41e726a7d9dd790fa4e81274822bb9ac006e5a822751315f701",
+    }
+}
 
 function initApi() {
     const wsProvider = new WsProvider('ws://127.0.0.1:9944');
@@ -56,19 +68,7 @@ async function main() {
     })
 
     app.get('/', async function (req, res) {
-        //const out = await api.tx.daqiao.pledge(1, new Text("hello")).signAndSend(alice);
-        //const chain = await api.rpc.system.chain();
-        console.log(bob.address);
-        const unsub = await api.tx.balances.transfer(bob.address, 2000000).signAndSend(alice,
-            (result) => {
-                console.log(`Current status is ${result.status}`);
-
-                if (result.status.isFinalized) {
-                    console.log(`Transaction included at blockHash ${result.status.asFinalized}`);
-                    unsub();
-                }
-            });
-        res.send({ "body": "ok" })
+        res.send("hello world");
     });
 
     /*
@@ -78,20 +78,33 @@ async function main() {
     }
     */
     app.post("/pledge", async (req, res) => {
-        const bank_addr = "";
-        var body = req.body;
-        var chainid = body["chainid"];
-        var txid = body["txid"];
-        if (chainid == CHAINID_FABRIC) {
-            var tx = fabric_query_tx(txid);
-            if (tx.to != FABRIC_BANK_ADDRESS) {
+        try {
+            const bank_addr = "";
+            var body = req.body;
+            var chainid = body["chainid"];
+            var txid = body["txid"];
+
+            const chain = chains[chainid];
+            if (!chain) {
+                res.status(400).send("bad chainid");
+                return
+            }
+
+            var tx = chain.query_tx(txid);
+            if (tx.to != chain.bank_address) {
                 res.status(400).send("bad to address, not bank");
                 return
             }
-            daqiao_pledge_exists(txid);
+            if (daqiao_pledge_exists(txid)) {
+                res.status(400).send("already pledged");
+                return;
+            }
             daqiao_pledge(chainid, txid, tx.address, tx.amount);
+
+            res.send("ok")
+        } catch (e) {
+            res.status(500).send(e.stack);
         }
-        res.send({ "code": 200 })
     });
 
     /*
@@ -101,17 +114,26 @@ async function main() {
     }
     */
     app.post("/withdraw", async (req, res) => {
-        const bank_addr = "";
-        var body = req.body;
-        var txid = body["txid"];
-        var chainid = body["chainid"];
-        if (chainid == FABRIC_BANK_ADDRESS) {
+        try {
+            const bank_addr = "";
+            var body = req.body;
+            var txid = body["txid"];
+            var chainid = body["chainid"];
+            const chain = chains[chainid]
+            if (!chain) {
+                res.status(400).send("bad chainid");
+                return
+            }
+
             var pledge_info = daqiao_query_pledge(txid);
-            if (!pledge_info.can_withdraw) {
+            if (!pledge_info || !pledge_info.can_withdraw) {
                 res.status(400).send("can't withdraw");
                 return;
             }
-            fabric_transfer(pledge_info.to, pledge_info.amount)
+            chain.transfer(pledge_info.to, pledge_info.amount)
+            res.send("ok");
+        } catch (e) {
+            res.status(500).send(e.stack);
         }
     });
 
@@ -123,9 +145,7 @@ async function main() {
 function fabric_query_tx(txid) {
     var response = child_process.spawnSync("./fbtool", ["query", "--txid", txid]);
     if (response.status != 0) {
-        console.log(response.stdout.toString());
-        console.log(response.stderr.toString());
-        throw ("bad txid");
+        return null
     }
     var args = JSON.parse(response.stdout);
     // transfer alice 10 0x123456
@@ -143,6 +163,19 @@ function fabric_transfer(to, amount) {
         console.log(response.stderr.toString());
         throw ("bad txid");
     }
+}
+/*
+@return 
+{
+    to:"",
+    amount:"",
+    address:"",
+}
+*/
+function eth_query_tx(txid) {
+}
+
+function eth_transfer(to, amount) {
 }
 
 async function daqiao_pledge(chainid, txid, to, amount) {
@@ -168,16 +201,25 @@ async function daqiao_withdraw(chainid, txid, to, amount) {
 }
 
 async function daqiao_query_pledge(pledgeid) {
+    var response = await api.query.daqiao.pledgeRecords(txid);
+    if (response["ext_txid"] == "0x") {
+        return null;
+    }
+    if (!response["can_withdraw"]) {
+        return null;
+    }
+
     return {
-        to: "6114e00d13745ed50224b9c895cf46f43caac7d2c5abec417268dd3c81ea253b",
-        amount: 100,
-        can_withdraw: true,
+        to: response["withdraw_address"],
+        amount: response["pledge_amount"],
+        can_withdraw: response["can_withdraw"],
     }
 }
 
 async function daqiao_pledge_exists(txid) {
     var response = await api.query.daqiao.pledgeRecords(txid);
     console.log(response.toString());
+    return response["ext_txid"] != "0x"
 }
 
 main()
