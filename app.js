@@ -39,7 +39,8 @@ function initApi() {
                 account_id: "AccountId",
                 pledge_amount: "TokenBalance",
                 can_withdraw: "bool",
-                withdraw_history: "Vec<Vec<u8>>"
+                withdraw_history: "Vec<Vec<u8>>",
+                withdraw_address: "Vec<u8>",
             },
             Symbol: 'Vect<u8>',
             TokenBalance: 'u128',
@@ -98,13 +99,13 @@ async function main() {
                 res.status(400).send("bad to address, not bank");
                 return
             }
-            if (daqiao_pledge_exists(txid)) {
+            if (await daqiao_pledge_exists(txid)) {
                 res.status(400).send("already pledged");
                 return;
             }
-            daqiao_pledge(chainid, txid, tx.address, tx.amount);
+            await daqiao_pledge(chainid, txid, tx.address, tx.amount);
 
-            res.send("ok")
+            res.send(new Text(txid).toHex());
         } catch (e) {
             res.status(500).send(e.stack);
         }
@@ -128,12 +129,12 @@ async function main() {
                 return
             }
 
-            var pledge_info = daqiao_query_pledge(txid);
-            if (!pledge_info || !pledge_info.can_withdraw) {
+            var pledge_info = await daqiao_query_pledge_info(txid);
+            if (pledge_info == null) {
                 res.status(400).send("can't withdraw");
                 return;
             }
-            chain.transfer(pledge_info.to, pledge_info.amount)
+            await chain.transfer(pledge_info.to, pledge_info.amount)
             res.send("ok");
         } catch (e) {
             res.status(500).send(e.stack);
@@ -228,26 +229,25 @@ async function daqiao_withdraw(chainid, txid, to, amount) {
     });
 }
 
-async function daqiao_query_pledge(pledgeid) {
-    var response = await api.query.daqiao.pledgeRecords(txid);
-    if (response["ext_txid"] == "0x") {
+async function daqiao_query_pledge_info(pledgeid) {
+    var response = await api.query.daqiao.pledgeRecords(pledgeid);
+    console.log("query_pledge_info ", response.toString());
+    if (response.ext_txid.eq("0x")) {
         return null;
     }
-    if (!response["can_withdraw"]) {
+    if (response.can_withdraw.isTrue) {
         return null;
     }
 
     return {
-        to: response["withdraw_address"],
-        amount: response["pledge_amount"],
-        can_withdraw: response["can_withdraw"],
+        to: response.withdraw_address.toString(),
+        amount: response.pledge_amount.toString(),
     }
 }
 
 async function daqiao_pledge_exists(txid) {
     var response = await api.query.daqiao.pledgeRecords(txid);
-    console.log(response.toString());
-    return response["ext_txid"] != "0x"
+    return !response.ext_txid.eq("0x");
 }
 
 main()
