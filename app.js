@@ -54,11 +54,11 @@ var alice;
 var api;
 var keyring;
 var web3 = new Web3(new Web3.providers.HttpProvider('http://127.0.0.1:8545'));
-// var private_key = fs.readFileSync("/path_to_file_of_eth_account_private_key", "utf8");
+var private_key = fs.readFileSync("./pk", "utf8");
 
 var app = express();
-app.use(express.json())
-app.use(express.urlencoded({ extended: true }))
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 async function main() {
     api = await initApi();
@@ -104,7 +104,7 @@ async function main() {
             }
             daqiao_pledge(chainid, txid, tx.address, tx.amount);
 
-            res.send("ok")
+            res.send("ok");
         } catch (e) {
             res.status(500).send(e.stack);
         }
@@ -176,7 +176,7 @@ function fabric_transfer(to, amount) {
 }
 */
 function eth_query_tx(txid) {
-    var tx = await web3.eth.getTransaction(txid);
+    var tx = web3.eth.getTransaction(txid);
     var to = tx['to'];
     var amount = tx['value'];
     var address = tx['input'];
@@ -189,8 +189,8 @@ function eth_query_tx(txid) {
 }
 
 function eth_transfer(to, amount) {
-    var privateKey = new Buffer('e331b6d69882b4cb4ea581d88e0b604039a3de5967688d3dcffdd2270c0fd109', 'hex');
-    // var privateKey = new Buffer(private_key, 'hex');
+    // var privateKey = new Buffer('e331b6d69882b4cb4ea581d88e0b604039a3de5967688d3dcffdd2270c0fd109', 'hex');
+    var privateKey = new Buffer(private_key, 'hex');
     var rawTx = {
     // nonce: '0x00',
     gasPrice: '0x09184e72a000',
@@ -203,7 +203,7 @@ function eth_transfer(to, amount) {
     tx.sign(privateKey);
 
     var serializedTx = tx.serialize();
-    await web3.eth.sendSignedTransaction('0x' + serializedTx.toString('hex')).on('receipt', console.log);
+    web3.eth.sendSignedTransaction('0x' + serializedTx.toString('hex')).on('receipt', console.log);
 }
 
 async function daqiao_pledge(chainid, txid, to, amount) {
